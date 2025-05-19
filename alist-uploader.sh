@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 版本信息
-VERSION="1.3.0"
+VERSION="1.3.1"
 
 # 检测操作系统类型
 detect_os() {
@@ -29,6 +29,7 @@ usage() {
     echo "  -r, --recursive         递归上传目录内的所有文件"
     echo "  -b, --batch <文件列表>  批量上传文件列表中的文件"
     echo "  --install                安装脚本到系统路径使其可全局使用"
+    echo "  --uninstall              卸载全局安装的脚本"
     echo "  -h, --help                  显示此帮助信息"
     echo "  -v, --version               显示版本信息"
     echo ""
@@ -618,12 +619,14 @@ EOF
     success_msg "配置完成! 配置文件已保存到: $1"
 }
 
+# 定义安装路径变量
+INSTALL_DIR="/usr/local/bin"
+INSTALL_NAME="alist-uploader"
+INSTALL_PATH="$INSTALL_DIR/$INSTALL_NAME"
+
 # 安装脚本到系统路径
 install_script() {
     local script_path="$(realpath "$0")"
-    local install_dir="/usr/local/bin"
-    local install_name="alist-uploader"
-    local install_path="$install_dir/$install_name"
     
     echo "========================================="
     info_msg "  AList-Uploader 安装向导  "
@@ -635,8 +638,8 @@ install_script() {
         error_exit "安装需要sudo权限，但系统中未找到sudo命令"
     fi
     
-    echo "将安装 AList-Uploader 到系统路径: $install_path"
-    echo "这将使脚本可以全局使用，通过命令: $install_name"
+    echo "将安装 AList-Uploader 到系统路径: $INSTALL_PATH"
+    echo "这将使脚本可以全局使用，通过命令: $INSTALL_NAME"
     echo ""
     read -p "是否继续安装？[y/N] " answer
     if [[ ! "$answer" =~ ^[Yy]$ ]]; then
@@ -645,21 +648,75 @@ install_script() {
     fi
     
     # 创建目录（如果不存在）
-    if [ ! -d "$install_dir" ]; then
-        echo "创建目录: $install_dir"
-        sudo mkdir -p "$install_dir"
+    if [ ! -d "$INSTALL_DIR" ]; then
+        echo "创建目录: $INSTALL_DIR"
+        sudo mkdir -p "$INSTALL_DIR"
     fi
     
     # 复制脚本并设置权限
-    echo "正在复制脚本到: $install_path"
-    sudo cp "$script_path" "$install_path"
-    sudo chmod 755 "$install_path"
+    echo "正在复制脚本到: $INSTALL_PATH"
+    sudo cp "$script_path" "$INSTALL_PATH"
+    sudo chmod 755 "$INSTALL_PATH"
     
     # 验证安装
-    if [ -f "$install_path" ]; then
-        success_msg "✅ 安装成功！现在可以在任何位置使用 '$install_name' 命令"
+    if [ -f "$INSTALL_PATH" ]; then
+        success_msg "✅ 安装成功！现在可以在任何位置使用 '$INSTALL_NAME' 命令"
     else
         error_exit "安装失败，请检查权限或手动复制脚本"
+    fi
+    
+    exit 0
+}
+
+# 卸载脚本
+uninstall_script() {
+    echo "========================================="
+    info_msg "  AList-Uploader 卸载向导  "
+    echo "========================================="
+    echo ""
+    
+    # 检查是否有sudo权限
+    if ! command -v sudo &>/dev/null; then
+        error_exit "卸载需要sudo权限，但系统中未找到sudo命令"
+    fi
+    
+    # 检查脚本是否已安装
+    if [ ! -f "$INSTALL_PATH" ]; then
+        error_exit "未找到全局安装的脚本: $INSTALL_PATH"
+    fi
+    
+    echo "将卸载 AList-Uploader 从系统路径: $INSTALL_PATH"
+    echo ""
+    read -p "是否继续卸载？[y/N] " answer
+    if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+        echo "卸载已取消."
+        exit 0
+    fi
+    
+    # 删除脚本
+    echo "正在删除脚本: $INSTALL_PATH"
+    sudo rm -f "$INSTALL_PATH"
+    
+    # 验证卸载
+    if [ ! -f "$INSTALL_PATH" ]; then
+        success_msg "✅ 卸载成功！全局命令 '$INSTALL_NAME' 已移除"
+        
+        # 询问是否删除配置文件
+        echo ""
+        read -p "是否同时删除配置文件？($CONFIG_DIR) [y/N] " answer
+        if [[ "$answer" =~ ^[Yy]$ ]]; then
+            echo "正在删除配置目录: $CONFIG_DIR"
+            rm -rf "$CONFIG_DIR"
+            if [ ! -d "$CONFIG_DIR" ]; then
+                success_msg "✅ 配置文件已删除"
+            else
+                echo "配置文件删除失败，请手动删除: $CONFIG_DIR"
+            fi
+        else
+            echo "保留配置文件，您可以手动删除: $CONFIG_DIR"
+        fi
+    else
+        error_exit "卸载失败，请检查权限或手动删除脚本"
     fi
     
     exit 0
@@ -733,6 +790,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --install)
             install_script
+            exit 0
+            ;;
+        --uninstall)
+            uninstall_script
             exit 0
             ;;
         -r|--recursive)
