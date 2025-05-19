@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 版本信息
-VERSION="1.3.3"
+VERSION="1.3.4"
 
 # GitHub仓库脚本地址
 UPDATE_URL="https://raw.githubusercontent.com/zuoban/alist-uploader/refs/heads/main/alist-uploader.sh"
@@ -128,6 +128,21 @@ format_size() {
     fi
 }
 
+# 绘制进度条
+draw_progress_bar() {
+    local percent=$1
+    local width=$2
+    local bar_width=$((width - 7))
+    local completed=$((percent * bar_width / 100))
+    local remaining=$((bar_width - completed))
+    
+    printf "[%3d%%" "$percent"
+    printf "|"
+    printf "%${completed}s" "" | tr " " "="
+    printf "%${remaining}s" "" | tr " " " "
+    printf "|"    
+}
+
 # 格式化时间
 format_time() {
     local seconds=$1
@@ -196,17 +211,91 @@ upload_file() {
     local elapsed
     local percent
     local speed
+    local speed_human
     local eta
+    local eta_human
     local temp_file=$(mktemp)
+    local progress_file=$(mktemp)
+    local terminal_width=80
+    local progress_bar_width=50
+    
+    # 获取终端宽度（如果可用）
+    if command -v tput &>/dev/null; then
+        terminal_width=$(tput cols)
+        progress_bar_width=$((terminal_width - 30))
+        if [ $progress_bar_width -lt 20 ]; then
+            progress_bar_width=20
+        fi
+    fi
     
     # 使用curl的写出函数来跟踪进度
-    # -# 选项显示进度条，-o /dev/null 不保存输出
-    curl -# -T "$local_file" "$upload_url" \
-      -H "Authorization: $token" \
-      -H "File-Path: $remote_file_path" \
-      -o /dev/null \
-      -w "%{size_upload}\n" \
-      2> "$temp_file" > "${temp_file}.complete"
+    # 使用-o /dev/null 不保存输出，并使用 -w 获取上传大小
+    # 使用--progress-bar获取进度信息
+    (
+        curl --progress-bar -T "$local_file" "$upload_url" \
+          -H "Authorization: $token" \
+          -H "File-Path: $remote_file_path" \
+          -o /dev/null \
+          -w "%{size_upload}\n" 2>&1 > "$progress_file" &
+        
+        curl_pid=$!
+        
+        # 定期更新进度条
+        while kill -0 $curl_pid 2>/dev/null; do
+            if [ -f "$progress_file" ]; then
+                # 解析curl进度条输出
+                if grep -q "\r" "$progress_file"; then
+                    current_progress=$(grep -o "[0-9]\+\.[0-9]\+%" "$progress_file" | tail -1 | sed 's/%//')
+                    if [ -n "$current_progress" ]; then
+                        percent=${current_progress%.*}
+                        uploaded_bytes=$((file_size_bytes * percent / 100))
+                        
+                        # 计算速度
+                        current_time=$(date +%s)
+                        elapsed=$((current_time - start_time))
+                        
+                        if [ $elapsed -gt 0 ]; then
+                            speed=$(echo "scale=2; $uploaded_bytes / $elapsed" | bc)
+                            
+                            if [ $(echo "$speed > 1048576" | bc) -eq 1 ]; then
+                                speed_human=$(echo "scale=2; $speed / 1048576" | bc)" MB/s"
+                            elif [ $(echo "$speed > 1024" | bc) -eq 1 ]; then
+                                speed_human=$(echo "scale=2; $speed / 1024" | bc)" KB/s"
+                            else
+                                speed_human="$speed 字节/秒"
+                            fi
+                            
+                            # 计算剩余时间
+                            if [ $speed -gt 0 ] && [ $percent -gt 0 ]; then
+                                remaining_bytes=$((file_size_bytes - uploaded_bytes))
+                                eta=$(echo "scale=0; $remaining_bytes / $speed" | bc)
+                                eta_human=$(format_time $eta)
+                            else
+                                eta_human="计算中..."
+                            fi
+                        else
+                            speed_human="计算中..."
+                            eta_human="计算中..."
+                        fi
+                        
+                        # 绘制进度条
+                        echo -ne "\r\033[K"
+                        draw_progress_bar $percent $progress_bar_width
+                        echo -ne " $speed_human | 剩余: $eta_human"
+                    fi
+                fi
+            fi
+            sleep 0.2
+        done
+    )
+    
+    # 等待curl完成
+    wait
+    
+    # 获取上传大小
+    if [ -f "$progress_file" ]; then
+        uploaded_bytes=$(cat "$progress_file" | tail -1)
+    fi
     
     # 检查上传结果
     local upload_status=$?
@@ -214,7 +303,7 @@ upload_file() {
     local duration=$((end_time - start_time))
     
     # 清除临时文件
-    rm -f "$temp_file" "${temp_file}.complete"
+    rm -f "$temp_file" "$progress_file"
     
     # 清除进度条行
     echo -ne "\r\033[K"
