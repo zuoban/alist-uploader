@@ -1,7 +1,18 @@
 #!/bin/bash
 
 # 版本信息
-VERSION="1.2.1"
+VERSION="1.3.0"
+
+# 检测操作系统类型
+detect_os() {
+    if [[ "$(uname)" == "Darwin" ]]; then
+        echo "macos"
+    else
+        echo "linux"
+    fi
+}
+
+OS_TYPE=$(detect_os)
 
 # 默认配置文件路径
 CONFIG_DIR="$HOME/.config/alist"
@@ -127,8 +138,16 @@ upload_file() {
     fi
     
     # 获取文件大小（字节和易读形式）
-    local file_size_bytes=$(stat -c%s "$local_file")
-    local file_size=$(du -h "$local_file" | cut -f1)
+    local file_size_bytes
+    local file_size
+    
+    if [[ "$OS_TYPE" == "macos" ]]; then
+        file_size_bytes=$(stat -f%z "$local_file")
+        file_size=$(du -h "$local_file" | awk '{print $1}')
+    else
+        file_size_bytes=$(stat -c%s "$local_file")
+        file_size=$(du -h "$local_file" | cut -f1)
+    fi
     local file_name=$(basename "$local_file")
     
     # 显示上传信息 - 更简洁的格式
@@ -207,7 +226,12 @@ upload_directory() {
     
     info_msg "正在计算总文件大小..."
     for ((i=0; i<$total_files; i++)); do
-        local file_size=$(stat -c%s "${items[$i]}")
+        local file_size
+        if [[ "$OS_TYPE" == "macos" ]]; then
+            file_size=$(stat -f%z "${items[$i]}")
+        else
+            file_size=$(stat -c%s "${items[$i]}")
+        fi
         ((total_size+=file_size))
     done
     
@@ -363,7 +387,12 @@ upload_file_list() {
     info_msg "正在计算总文件大小..."
     for ((i=0; i<$total_files; i++)); do
         if [ -f "${files[$i]}" ]; then
-            local file_size=$(stat -c%s "${files[$i]}" 2>/dev/null || echo 0)
+            local file_size
+            if [[ "$OS_TYPE" == "macos" ]]; then
+                file_size=$(stat -f%z "${files[$i]}" 2>/dev/null || echo 0)
+            else
+                file_size=$(stat -c%s "${files[$i]}" 2>/dev/null || echo 0)
+            fi
             ((total_size+=file_size))
         fi
     done
@@ -401,7 +430,11 @@ upload_file_list() {
         local file_size=0
         
         if [ -f "$file" ]; then
-            file_size=$(stat -c%s "$file" 2>/dev/null || echo 0)
+            if [[ "$OS_TYPE" == "macos" ]]; then
+                file_size=$(stat -f%z "$file" 2>/dev/null || echo 0)
+            else
+                file_size=$(stat -c%s "$file" 2>/dev/null || echo 0)
+            fi
         fi
         
         local percent_complete=$((($i * 100) / $total_files))
