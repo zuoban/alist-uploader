@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 版本信息
-VERSION="1.2.0"
+VERSION="1.2.1"
 
 # 默认配置文件路径
 CONFIG_DIR="$HOME/.config/alist"
@@ -17,6 +17,7 @@ usage() {
     echo "  -e, --edit                  编辑配置文件"
     echo "  -r, --recursive         递归上传目录内的所有文件"
     echo "  -b, --batch <文件列表>  批量上传文件列表中的文件"
+    echo "  --install                安装脚本到系统路径使其可全局使用"
     echo "  -h, --help                  显示此帮助信息"
     echo "  -v, --version               显示版本信息"
     echo ""
@@ -27,6 +28,7 @@ usage() {
     echo "  $0 -b filelist.txt             # 批量上传文件列表中的文件"
     echo "  $0 -i                          # 交互式配置"
     echo "  $0 -e                          # 编辑配置文件"
+    echo "  $0 --install                   # 安装到系统路径"
     exit 1
 }
 
@@ -583,6 +585,53 @@ EOF
     success_msg "配置完成! 配置文件已保存到: $1"
 }
 
+# 安装脚本到系统路径
+install_script() {
+    local script_path="$(realpath "$0")"
+    local install_dir="/usr/local/bin"
+    local install_name="alist-uploader"
+    local install_path="$install_dir/$install_name"
+    
+    echo "========================================="
+    info_msg "  AList-Uploader 安装向导  "
+    echo "========================================="
+    echo ""
+    
+    # 检查是否有sudo权限
+    if ! command -v sudo &>/dev/null; then
+        error_exit "安装需要sudo权限，但系统中未找到sudo命令"
+    fi
+    
+    echo "将安装 AList-Uploader 到系统路径: $install_path"
+    echo "这将使脚本可以全局使用，通过命令: $install_name"
+    echo ""
+    read -p "是否继续安装？[y/N] " answer
+    if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+        echo "安装已取消."
+        exit 0
+    fi
+    
+    # 创建目录（如果不存在）
+    if [ ! -d "$install_dir" ]; then
+        echo "创建目录: $install_dir"
+        sudo mkdir -p "$install_dir"
+    fi
+    
+    # 复制脚本并设置权限
+    echo "正在复制脚本到: $install_path"
+    sudo cp "$script_path" "$install_path"
+    sudo chmod 755 "$install_path"
+    
+    # 验证安装
+    if [ -f "$install_path" ]; then
+        success_msg "✅ 安装成功！现在可以在任何位置使用 '$install_name' 命令"
+    else
+        error_exit "安装失败，请检查权限或手动复制脚本"
+    fi
+    
+    exit 0
+}
+
 # 编辑配置文件
 edit_config() {
     if [ ! -f "$1" ]; then
@@ -648,6 +697,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -v|--version)
             show_version
+            ;;
+        --install)
+            install_script
+            exit 0
             ;;
         -r|--recursive)
             RECURSIVE_MODE=true
