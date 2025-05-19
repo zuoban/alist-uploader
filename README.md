@@ -21,7 +21,23 @@ AList-Uploader 是一个命令行工具，用于便捷地将文件上传到 [ALi
 
 ## 安装
 
-### 方法 1：直接下载
+### 方法 1：一键安装（推荐）
+
+使用 curl 一键安装：
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/zuoban/alist-uploader/refs/heads/main/install.sh)"
+```
+
+使用 wget 一键安装：
+
+```bash
+bash -c "$(wget -qO- https://raw.githubusercontent.com/zuoban/alist-uploader/refs/heads/main/install.sh)"
+```
+
+这将自动下载并安装脚本到您的系统，并提示您是否要立即进行配置。
+
+### 方法 2：手动下载
 
 ```bash
 # 克隆仓库
@@ -32,7 +48,7 @@ cd alist-uploader
 chmod +x alist-uploader.sh
 ```
 
-### 方法 2：全局安装
+### 方法 3：下载后全局安装
 
 ```bash
 # 下载后执行安装命令
