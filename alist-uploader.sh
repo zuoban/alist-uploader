@@ -1,7 +1,10 @@
 #!/bin/bash
 
 # 版本信息
-VERSION="1.3.2"
+VERSION="1.3.3"
+
+# GitHub仓库脚本地址
+UPDATE_URL="https://raw.githubusercontent.com/zuoban/alist-uploader/refs/heads/main/alist-uploader.sh"
 
 # 检测操作系统类型
 detect_os() {
@@ -30,6 +33,7 @@ usage() {
     echo "  -b, --batch <文件列表>  批量上传文件列表中的文件"
     echo "  --install                安装脚本到系统路径使其可全局使用"
     echo "  --uninstall              卸载全局安装的脚本"
+    echo "  --update                 检查并更新到最新版本"
     echo "  -h, --help                  显示此帮助信息"
     echo "  -v, --version               显示版本信息"
     echo ""
@@ -41,6 +45,7 @@ usage() {
     echo "  $0 -i                          # 交互式配置"
     echo "  $0 -e                          # 编辑配置文件"
     echo "  $0 --install                   # 安装到系统路径"
+    echo "  $0 --update                    # 更新脚本到最新版本"
     exit 1
 }
 
@@ -711,6 +716,92 @@ install_script() {
     exit 0
 }
 
+# 更新脚本
+update_script() {
+    echo "========================================="
+    info_msg "  AList-Uploader 更新向导  "
+    echo "========================================="
+    echo ""
+    
+    local script_path="$(realpath "$0")"
+    local temp_file=$(mktemp)
+    local current_version="$VERSION"
+    
+    info_msg "当前版本: $current_version"
+    info_msg "正在检查更新..."
+    
+    # 下载最新脚本到临时文件
+    if ! curl -s -o "$temp_file" "$UPDATE_URL"; then
+        rm -f "$temp_file"
+        error_exit "无法下载最新版本，请检查网络连接"
+    fi
+    
+    # 检查下载的文件是否有效
+    if [ ! -s "$temp_file" ]; then
+        rm -f "$temp_file"
+        error_exit "下载的文件为空，更新失败"
+    fi
+    
+    # 提取远程脚本的版本号
+    local remote_version=$(grep -m 1 "VERSION=\".*\"" "$temp_file" | cut -d'"' -f2)
+    
+    if [ -z "$remote_version" ]; then
+        rm -f "$temp_file"
+        error_exit "无法获取远程脚本的版本号"
+    fi
+    
+    info_msg "发现版本: $remote_version"
+    
+    # 比较版本
+    if [ "$current_version" = "$remote_version" ]; then
+        rm -f "$temp_file"
+        success_msg "已经是最新版本 ($current_version)"
+        exit 0
+    fi
+    
+    echo "发现新版本: $remote_version (当前版本: $current_version)"
+    read -p "是否更新到最新版本? [y/N] " answer
+    
+    if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+        rm -f "$temp_file"
+        echo "更新已取消."
+        exit 0
+    fi
+    
+    # 备份当前脚本
+    local backup_file="${script_path}.bak"
+    cp "$script_path" "$backup_file"
+    
+    # 更新脚本
+    if [ -f "$INSTALL_PATH" ]; then
+        # 如果是全局安装的脚本，需要sudo权限
+        if ! command -v sudo &>/dev/null; then
+            rm -f "$temp_file"
+            error_exit "更新全局安装的脚本需要sudo权限，但系统中未找到sudo命令"
+        fi
+        
+        echo "正在更新全局安装的脚本..."
+        sudo cp "$temp_file" "$INSTALL_PATH"
+        sudo chmod 755 "$INSTALL_PATH"
+        
+        # 同时更新当前脚本
+        cp "$temp_file" "$script_path"
+        chmod +x "$script_path"
+    else
+        # 只更新当前脚本
+        cp "$temp_file" "$script_path"
+        chmod +x "$script_path"
+    fi
+    
+    # 清理临时文件
+    rm -f "$temp_file"
+    
+    success_msg "✅ 更新成功! 已从 $current_version 更新到 $remote_version"
+    success_msg "原脚本已备份到: $backup_file"
+    
+    exit 0
+}
+
 # 卸载脚本
 uninstall_script() {
     echo "========================================="
@@ -837,6 +928,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --uninstall)
             uninstall_script
+            exit 0
+            ;;
+        --update)
+            update_script
             exit 0
             ;;
         -r|--recursive)
