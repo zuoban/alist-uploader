@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 版本信息
-VERSION="1.3.1"
+VERSION="1.3.2"
 
 # 检测操作系统类型
 detect_os() {
@@ -109,6 +109,30 @@ decrypt_password() {
     echo "$decrypted"
 }
 
+# 格式化文件大小为易读形式
+format_size() {
+    local size=$1
+    if [ $size -ge 1073741824 ]; then
+        echo $(echo "scale=2; $size / 1073741824" | bc)" GB"
+    elif [ $size -ge 1048576 ]; then
+        echo $(echo "scale=2; $size / 1048576" | bc)" MB"
+    elif [ $size -ge 1024 ]; then
+        echo $(echo "scale=2; $size / 1024" | bc)" KB"
+    else
+        echo "$size 字节"
+    fi
+}
+
+# 格式化时间
+format_time() {
+    local seconds=$1
+    if [ $seconds -ge 3600 ]; then
+        printf "%d:%02d:%02d" $((seconds/3600)) $((seconds%3600/60)) $((seconds%60))
+    else
+        printf "%d:%02d" $((seconds/60)) $((seconds%60))
+    fi
+}
+
 # 上传单个文件
 upload_file() {
     local local_file="$1"
@@ -151,26 +175,41 @@ upload_file() {
     fi
     local file_name=$(basename "$local_file")
     
-    # 显示上传信息 - 更简洁的格式
-    echo -ne "\r\033[K\033[36m↑ $file_name ($file_size) \033[0m"
+    # 显示上传信息
+    echo -e "\033[36m开始上传: $file_name ($file_size)\033[0m"
     
-    # 执行上传，使用更简洁的进度显示
+    # 执行上传
     local upload_url="$base_url/api/fs/put"
     local remote_url="$base_url$remote_file_path"
     
     # 计算开始时间
     local start_time=$(date +%s)
+    local last_updated=$start_time
+    local uploaded_bytes=0
+    local last_bytes=0
+    local current_time
+    local elapsed
+    local percent
+    local speed
+    local eta
+    local temp_file=$(mktemp)
     
-    # 使用静默模式并显示简洁进度条
-    curl -s -T "$local_file" "$upload_url" \
+    # 使用curl的写出函数来跟踪进度
+    # -# 选项显示进度条，-o /dev/null 不保存输出
+    curl -# -T "$local_file" "$upload_url" \
       -H "Authorization: $token" \
       -H "File-Path: $remote_file_path" \
-      --progress-bar
+      -o /dev/null \
+      -w "%{size_upload}\n" \
+      2> "$temp_file" > "${temp_file}.complete"
     
     # 检查上传结果
     local upload_status=$?
     local end_time=$(date +%s)
     local duration=$((end_time - start_time))
+    
+    # 清除临时文件
+    rm -f "$temp_file" "${temp_file}.complete"
     
     # 清除进度条行
     echo -ne "\r\033[K"
@@ -178,23 +217,27 @@ upload_file() {
     if [ $upload_status -eq 0 ]; then
         if [ $duration -gt 0 ]; then
             local speed=$(echo "scale=2; $file_size_bytes / $duration" | bc)
+            local speed_human
+            
             if [ $(echo "$speed > 1048576" | bc) -eq 1 ]; then
-                speed=$(echo "scale=2; $speed / 1048576" | bc)" MB/s"
+                speed_human=$(echo "scale=2; $speed / 1048576" | bc)" MB/s"
             elif [ $(echo "$speed > 1024" | bc) -eq 1 ]; then
-                speed=$(echo "scale=2; $speed / 1024" | bc)" KB/s"
+                speed_human=$(echo "scale=2; $speed / 1024" | bc)" KB/s"
             else
-                speed="$speed 字节/秒"
+                speed_human="$speed 字节/秒"
             fi
-            # 更简洁的成功信息
-            echo -e "\r\033[K\033[32m✓ $file_name\033[0m"
+            
+            # 成功信息包含速度和耗时
+            local time_taken=$(format_time $duration)
+            echo -e "\033[32m✓ 上传成功: $file_name | 平均速度: $speed_human | 耗时: $time_taken\033[0m"
         else
-            echo -e "\r\033[K\033[32m✓ $file_name\033[0m"
+            echo -e "\033[32m✓ 上传成功: $file_name\033[0m"
         fi
         # 存储远程 URL 以供后续使用
         echo "$remote_url" > /tmp/alist_last_upload_url_$file_name
         return 0
     else
-        echo -e "\r\033[K\033[31m✗ $file_name (失败)\033[0m"
+        echo -e "\033[31m✗ 上传失败: $file_name\033[0m"
         return 1
     fi
 }
@@ -860,7 +903,6 @@ if [ "$BATCH_MODE" = true ]; then
     fi
     
     # 获取 token
-    info_msg "正在获取认证令牌..."
     RESPONSE=$(curl --silent --header "Content-Type: application/json" \
       --request POST --data "{\"username\":\"$USERNAME\", \"password\":\"$PASSWORD\"}" \
       "$ALIST_BASE_URL/api/auth/login")
@@ -914,7 +956,6 @@ if [ "$RECURSIVE_MODE" = true ]; then
     fi
     
     # 获取 token
-    info_msg "正在获取认证令牌..."
     RESPONSE=$(curl --silent --header "Content-Type: application/json" \
       --request POST --data "{\"username\":\"$USERNAME\", \"password\":\"$PASSWORD\"}" \
       "$ALIST_BASE_URL/api/auth/login")
@@ -975,7 +1016,6 @@ else
 fi
 
 # 获取 token
-info_msg "正在获取认证令牌..."
 RESPONSE=$(curl --silent --header "Content-Type: application/json" \
   --request POST --data "{\"username\":\"$USERNAME\", \"password\":\"$PASSWORD\"}" \
   "$BASE_URL/api/auth/login")
